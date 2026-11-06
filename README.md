@@ -211,7 +211,7 @@ Icon (minimal flat gold tank on navy) source: `python3 tools/make_icon.py` (SVG)
 ### Tests (optional, need Chrome + puppeteer-core)
 
 `tests/` holds the headless scripts used during development (weapons, bots, online sync/reconnect, phone joystick, teams).
-- `node tests/stick-unit.js`, `node tests/teams-unit.js`, `node tests/reactions-unit.js` and `node tests/deathmatch-unit.js` are pure Node (no browser).
+- `node tests/stick-unit.js`, `node tests/teams-unit.js`, `node tests/reactions-unit.js`, `node tests/deathmatch-unit.js` and `node tests/discord-join-unit.js` (starts its own server on PORT=8099) are pure Node (no browser).
 - `TT_DEBUG_DM=1 PORT=8098 npm start`, then `BASE=http://localhost:8098 node tests/deathmatch-headless.js`: Deathmatch picker on phones, local respawn countdown / HUD / end screen / play again, two players on one phone, and an online match (host picks it, server respawns + scores, time limit + kill target, back to lobby). `TT_DEBUG_DM=1` enables two test-only messages (kill a tank, set the clock). Screenshots go to `/workspace/deathmatch-shots/` (`OUT=` to change).
 - `BASE=http://localhost:8097 node tests/reactions-headless.js`: reactions (keys, phone picker, online broadcast + server checks) and an 8-player online room (9th refused, 4 v 4 teams, no overlapping spawns).
 - `tests/joystick-headless.js`, `tests/teams-headless.js` and `tests/responsive-headless.js` (menu/lobby/game fit without scrolling, 320 px → desktop) and `tests/pwa-headless.js` use Chrome. Their online part needs a server: `PORT=8097 npm start`, then `BASE=http://localhost:8097 node tests/teams-headless.js`.
