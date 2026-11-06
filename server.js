@@ -28,6 +28,7 @@ const server = http.createServer((req, res) => {
 // WebSockets: any origin may connect (the static client can live on GitHub Pages)
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
 const rooms = new Map();
+const keyRooms = new Map(); // Discord Activity instance id -> room code (everyone in the same voice-channel activity shares one room)
 const ALPH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function newCode() { let c; do { c = Array.from({ length: 4 }, () => ALPH[crypto.randomInt(ALPH.length)]).join(''); } while (rooms.has(c)); return c; }
 const send = (ws, m) => { if (ws && ws.readyState === 1) ws.send(typeof m === 'string' ? m : JSON.stringify(m)); };
@@ -55,7 +56,7 @@ function removeMember(room, id) {
   clearTimeout(mb.dropTimer);
   room.members.delete(id); room.order = room.order.filter(x => x !== id);
   if (room.game) TT.removePlayer(room.game, id);
-  if (!humans(room).length) { stopGame(room); rooms.delete(room.code); return; }
+  if (!humans(room).length) { stopGame(room); rooms.delete(room.code); if (room.key && keyRooms.get(room.key) === room.code) keyRooms.delete(room.key); return; }
   if (room.hostId === id) { const h = humans(room).find(h => h.connected) || humans(room)[0]; room.hostId = h.id; }
   broadcast(room, lobbyMsg(room));
 }
@@ -116,7 +117,14 @@ wss.on('connection', ws => {
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'input') { if (me) { const k = m.k || {}; me.input = { u: !!k.u, d: !!k.d, l: !!k.l, r: !!k.r, f: !!k.f }; if (m.s) { me.seq = m.s >>> 0; me.ticks = 0; } } return; }
-    if (m.t === 'create' && !room) { const r = { code: newCode(), members: new Map(), order: [], hostId: null, game: null, loop: null, level: 'normal', mode: 'ffa', match: 'rounds', target: TT.DM.TARGET }; rooms.set(r.code, r); join(r, m.name); }
+    const newRoom = () => { const r = { code: newCode(), members: new Map(), order: [], hostId: null, game: null, loop: null, level: 'normal', mode: 'ffa', match: 'rounds', target: TT.DM.TARGET }; rooms.set(r.code, r); return r; };
+    if (m.t === 'create' && !room) join(newRoom(), m.name);
+    else if (m.t === 'joinOrCreate' && !room) { // Discord Activity: the room belongs to the activity instance (voice channel)
+      const key = String(m.key || '').slice(0, 64); if (!key) return send(ws, { t: 'error', msg: 'Missing activity id.' });
+      let r = rooms.get(keyRooms.get(key));
+      if (!r) { r = newRoom(); r.key = key; keyRooms.set(key, r.code); }
+      join(r, m.name);
+    }
     else if (m.t === 'join' && !room) { const r = rooms.get(String(m.code || '').toUpperCase().trim()); if (!r) return send(ws, { t: 'error', msg: 'Room not found.' }); join(r, m.name); }
     else if (m.t === 'rejoin' && !room) {
       const r = rooms.get(String(m.code || '').toUpperCase().trim()), mb = r && [...r.members.values()].find(x => !x.bot && x.token === m.token);

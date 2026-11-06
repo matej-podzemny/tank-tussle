@@ -168,6 +168,24 @@ curl localhost:8090/health   # {"ok":true,...}
   behind a reverse proxy with TLS (nginx example above, or Caddy/Traefik) and set `docs/config.js` to the `https://` address.
 - Build it yourself instead: `docker build -t tank-tussle . && docker run -d -p 8090:8090 tank-tussle`.
 
+### Discord Activity (play inside a Discord voice channel)
+
+The same server also works as a [Discord Activity](https://docs.discord.com/developers/activities/overview). Nothing changes for the normal web version:
+the client switches to Discord mode only when it runs on `<client id>.discordsays.com` (Discord's proxy).
+In Discord mode the online box shows **Play in this channel ▶**. Everyone who opens the activity in the same voice channel lands in the same room
+(the room is keyed by the activity instance id, message `joinOrCreate`), the first one in is the host. No codes or links are needed.
+The client talks to the server through Discord's proxy on the same origin (`/ws`), and the service worker is off inside Discord.
+`public/discord-sdk.js` is `@discord/embedded-app-sdk` bundled as one file (`window.DiscordSDK`), loaded only inside Discord.
+
+1. The server must be reachable over **https** (the Docker setup above with TLS). For a quick test from your PC: `npm start`, then
+   `cloudflared tunnel --url http://localhost:8090` and use the `*.trycloudflare.com` address it prints (it changes on every run).
+2. <https://discord.com/developers/applications> → **New Application**.
+3. **Activities → Settings**: turn on **Enable Activities**.
+4. **Activities → URL Mappings**: prefix `/` → target = your server's host name without `https://` (e.g. `tank.example.com`). Save.
+5. **Installation**: keep *Guild Install*, open the install link and add the app to your server.
+6. In Discord, join a voice channel → 🚀 (Activities) → pick the app → **Play in this channel ▶**.
+   While the app is not published only you (and people you add to the app's team / testers) see it in the list.
+
 ### Pointing the GitHub Pages client at the server
 
 `docs/` is the static GitHub Pages site (same client, plus `tank-tussle.html`). Edit **`docs/config.js`**:
