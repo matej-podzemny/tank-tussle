@@ -36,7 +36,7 @@ print('built tank-tussle.html', len(s))
 
 # 3. GitHub Pages copy of the static client (docs/). config.js there points at the separately hosted server.
 os.makedirs('docs/icons', exist_ok=True)
-for f in ['index.html', 'game.js', 'bots.js', 'client.js', 'manifest.webmanifest']:
+for f in ['index.html', 'game.js', 'bots.js', 'client.js', 'manifest.webmanifest', 'discord-sdk.js']:
     shutil.copy('public/' + f, 'docs/' + f)
 for f in ICONS: shutil.copy('public/icons/' + f, 'docs/icons/' + f)
 if not os.path.exists('docs/config.js'):
