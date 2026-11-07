@@ -3,7 +3,7 @@
 // - Other shell files (JS, icons, manifest): from the cache, refreshed whenever VERSION changes.
 // - Never touches the online-play server: WebSocket (/ws), /health, other origins or non-GET requests pass straight through.
 // VERSION is stamped by build.py (hash of the shell files), so every rebuild installs a fresh cache.
-const VERSION = '9b2dc138b5';
+const VERSION = '63237b91ac';
 const CACHE = 'tank-tussle-' + VERSION;
 const SHELL = ['./', 'index.html', 'config.js', 'game.js', 'bots.js', 'client.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png', 'icons/icon.svg'];
