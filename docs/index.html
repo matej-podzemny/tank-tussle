@@ -150,6 +150,11 @@
   #overTitle { font-size: 24px; text-transform: none; letter-spacing: 0; color: #333; margin-bottom: 2px; }
   @media (max-height: 520px) { #overList { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; margin: 6px 0; } #overList li { padding: 3px 8px; font-size: 13px; } #overTitle { font-size: 20px; } }
   #rotate { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(207,207,207,.95); font-size: 18px; padding: 30px; }
+  /* no-zoom: kill double-tap/pinch zoom, callouts and tap flash; inputs >=16px so iOS doesn't zoom on focus */
+  * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  button, .rpick button, .tabs button { touch-action: manipulation; }
+  input, select, textarea { font-size: 16px !important; -webkit-user-select: text; user-select: text; touch-action: manipulation; }
+  #zoomReset { position: fixed; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50; padding: 6px 14px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -249,5 +254,43 @@
 <script src="game.js"></script>
 <script src="bots.js"></script>
 <script src="client.js"></script>
+<button id="zoomReset" style="display:none">Reset zoom</button>
+<script>
+// No-zoom guard (iOS Safari ignores user-scalable=no): block gestures, double-tap and stray pinches,
+// but never touches on the joystick / FIRE / REVERSE / reaction controls (multi-touch play keeps working).
+(function () {
+  var CTRL = '.joy, .fire, .pad, .react, .rpick, canvas';
+  var isInput = function (t) { return t && t.closest && t.closest('input, textarea, select'); };
+  var isCtrl = function (t) { return t && t.closest && t.closest(CTRL); };
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+  });
+  var last = 0;
+  document.addEventListener('touchend', function (e) {
+    var now = Date.now();
+    if (now - last < 300 && !isInput(e.target) && e.cancelable) {
+      e.preventDefault();
+      if (!isCtrl(e.target) && e.target.click && e.target.closest('button')) e.target.closest('button').click();
+    }
+    last = now;
+  }, { passive: false });
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length > 1 && e.cancelable) {
+      for (var i = 0; i < e.touches.length; i++) if (!isCtrl(e.touches[i].target)) { e.preventDefault(); return; }
+    }
+  }, { passive: false });
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); }, { passive: false });
+  var vv = window.visualViewport, btn = document.getElementById('zoomReset');
+  if (vv && btn) {
+    var meta = document.querySelector('meta[name=viewport]');
+    var upd = function () { btn.style.display = vv.scale > 1.01 ? 'block' : 'none'; };
+    vv.addEventListener('resize', upd); upd();
+    btn.addEventListener('click', function () {
+      var c = meta.content; meta.content = c.replace('maximum-scale=1', 'maximum-scale=1.0001');
+      setTimeout(function () { meta.content = c; window.scrollTo(0, 0); upd(); }, 50);
+    });
+  }
+})();
+</script>
 </body>
 </html>
