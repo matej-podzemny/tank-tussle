@@ -16,7 +16,19 @@ const fits = (p, sel) => p.evaluate(sel => { const b = document.querySelector(se
 const shot = async (p, name) => { await p.screenshot({ path: OUT + name }); console.log('  screenshot ' + OUT + name); };
 // local: put a bullet from `by` right on top of tank `id` (the real kill path, protection off)
 const localKill = (p, id, by) => p.evaluate((id, by) => { const g = __tt.game, t = g.tanks[id]; t.prot = 0; g.bullets.push({ id: g.nextId++, owner: by, kind: 'b', r: 3.2, x: t.x, y: t.y, vx: 0.01, vy: 0, age: 1, a: 0 }); }, id, by);
+// Online part needs a server with TT_DEBUG_DM=1 (debugKill/debugClock); without it the time-limit step hangs.
+// If BASE isn't given, start our own debug server on 8098 so the test can't silently run against a non-debug one.
+let child = null;
+async function ensureServer() {
+  if (process.env.BASE) return;
+  try { await fetch(BASE + '/health'); console.log('(using existing server at ' + BASE + ' - must run with TT_DEBUG_DM=1)'); return; } catch {}
+  child = require('child_process').spawn('node', [__dirname + '/../server.js'], { env: { ...process.env, TT_DEBUG_DM: '1', PORT: '8098' }, stdio: 'ignore' });
+  for (let i = 0; i < 50; i++) { try { await fetch(BASE + '/health'); return; } catch { await new Promise(r => setTimeout(r, 100)); } }
+  throw new Error('debug server did not start on 8098');
+}
+process.on('exit', () => child && child.kill());
 (async () => {
+  await ensureServer();
   const B = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new', args: ['--no-sandbox'] });
   const errs = [];
   for (const [vp, tag] of [[PHONE, 'portrait'], [SMALL, 'small'], [LAND, 'landscape']]) { console.log('menu ' + tag);
@@ -115,7 +127,7 @@ const localKill = (p, id, by) => p.evaluate((id, by) => { const g = __tt.game, t
     ok(await H.evaluate(gid => __tt.net.players.find(p => p.id === gid).score, gid) === -1, 'self-kill = -1 on the server');
     // time limit: wind the server clock to 2 s and wait for the end
     await H.evaluate(() => __tt.net.send({ t: 'debugClock', left: 2 }));
-    await G.waitForFunction(() => !document.getElementById('over').classList.contains('hidden'), { timeout: 20000 });
+    await G.waitForFunction(() => !document.getElementById('over').classList.contains('hidden'), { timeout: 20000 }).catch(e => { throw new Error('match did not end after debugClock - is the server running with TT_DEBUG_DM=1? ' + e.message); });
     const ov = await G.evaluate(() => ({ t: document.getElementById('overTitle').textContent, s: document.getElementById('overSub').textContent, wait: !document.getElementById('overWait').classList.contains('hidden'), again: !document.getElementById('again').parentElement.classList.contains('hidden') }));
     // bots play too, so the leader isn't fixed: the title must match the server's final scores
     const sc = await G.evaluate(() => __tt.net.players.map(p => [p.name, p.score, p.you]));
