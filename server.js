@@ -84,7 +84,9 @@ function startGame(room) {
     if (++tick % SEND_EVERY === 0 || ev.some(e => e.type === 'die' || e.type === 'respawn' || e.type === 'over')) {
       const s = TT.snapshot(g); s.ev = ev.filter(e => e.type !== 'bounce' && e.type !== 'round');
       s.ak = [...room.members.values()].filter(m => m.seq).map(m => [m.id, m.seq, m.ticks]); // last input seq + ticks it has been applied (client prediction)
-      broadcast(room, s);
+      // each client only gets its own shots-fired count (others' counts stay on the server)
+      const js = JSON.stringify(s).slice(0, -1), shots = new Map(g.players.map(p => [p.id, p.shots || 0]));
+      for (const mb of room.members.values()) if (!mb.bot) send(mb.ws, js + ',"my":' + (shots.get(mb.id) || 0) + '}');
     }
   }, 1000 * TICK);
 }

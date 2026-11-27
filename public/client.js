@@ -313,6 +313,7 @@ function openSocket(me, firstMsg) {
     } else if (m.t === 'maze') {
       me.maze = m.maze; me.rects = TT.mazeRects(m.maze); me.round = m.round; me.snaps = []; me.pendingEv = []; me.pb = null; me.err = { x: 0, y: 0, a: 0 }; me.win = null; me.dm = null; hideOver();
     } else if (m.t === 's') {
+      if (m.my != null) me.myShots = m.my; // only our own shots-fired count is sent
       if (m.round !== me.round) return;
       const now = performance.now(), est = m.time - now;
       me.offset = me.offset == null || est < me.offset ? est : me.offset * 0.98 + est * 0.02; // track the fastest path
@@ -415,7 +416,7 @@ function onlineView(dt) {
   for (const [id, bb] of b.bullets) { const ba = a.bullets.get(id); if (ba) bullets.push({ x: ba.x + (bb.x - ba.x) * t, y: ba.y + (bb.y - ba.y) * t, kind: bb.kind, a: bb.a, tgt: bb.tgt }); else if (t > 0.5) bullets.push(bb); }
   const due = net.pendingEv.filter(e => e.at <= rt + 20); net.pendingEv = net.pendingEv.filter(e => e.at > rt + 20);
   handleEvents(due, id => tanks.find(x => x.id === id));
-  return { maze: net.maze, tanks, bullets, crates: b.crates, mines: b.mines, beams: b.beams, players: net.players.map(p => ({ id: p.id, name: p.name, color: p.color, score: p.score, team: p.team, bot: p.bot, you: p.id === net.you })),
+  return { maze: net.maze, tanks, bullets, crates: b.crates, mines: b.mines, beams: b.beams, players: net.players.map(p => ({ id: p.id, name: p.name, color: p.color, score: p.score, team: p.team, bot: p.bot, you: p.id === net.you, shots: p.id === net.you ? net.myShots || 0 : null })),
     teams: net.mode === 'teams', teamScore: net.teamScore || [0, 0], dm: net.dm, phase: b.phase };
 }
 
@@ -859,6 +860,14 @@ function render(view, dt) {
     ctx.font = `${Math.round(10 * sc)}px Verdana, sans-serif`; ctx.fillStyle = '#555';
     const sub = view.legend && view.legend[i] ? view.legend[i] : (p.name + (p.you ? ' (you)' : ''));
     ctx.fillText(w && !p.bot ? TT.WEAPON_NAMES[w] : sub, cx - 6 * sc, hy + 13 * sc);
+    // shots fired this game: only your own (online the server only sends yours; local = each human's HUD slot)
+    if (p.shots != null && !p.bot) {
+      const px = ix + bs / 2 + (w === 'gatling' ? 30 : 6) * sc, txt = `${p.shots} shot${p.shots === 1 ? '' : 's'}`;
+      ctx.font = `bold ${Math.round(9 * sc)}px Verdana, sans-serif`; const tw = ctx.measureText(txt).width + 8 * sc, ph = 15 * sc;
+      ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.strokeStyle = COLORS[p.color]; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, iy - ph / 2, tw, ph, ph / 2) : ctx.rect(px, iy - ph / 2, tw, ph); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.fillText(txt, px + 4 * sc, iy + 0.5);
+    }
   });
   if (view.dm && view.phase !== 'over') drawRespawnBanner(view, L);
   // reaction bubbles: over the tank while alive, over the player's score while dead
@@ -922,7 +931,7 @@ function drawRespawnBanner(view, L) {
   ctx.restore();
 }
 function localView() {
-  return { maze: game.maze, rects: game.rects, tanks: Object.values(game.tanks), bullets: game.bullets, players: game.players,
+  return { maze: game.maze, rects: game.rects, tanks: Object.values(game.tanks), bullets: game.bullets, players: game.players.map(p => p.bot ? Object.assign({}, p, { shots: null }) : p),
     crates: game.crates, beams: game.beams, mines: game.mines.map(m => ({ x: m.x, y: m.y, state: TT.mineState(m) })),
     teams: game.mode === 'teams', teamScore: game.teamScore, phase: game.phase,
     dm: TT.isDM(game) ? { left: game.dmLeft, target: game.dmTarget } : null,

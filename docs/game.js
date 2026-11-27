@@ -192,7 +192,7 @@
     if (ci == null || used.has(ci)) { ci = 0; while (used.has(ci)) ci++; }
     let team = p.team;
     if (team !== 0 && team !== 1) { const n = [0, 1].map(k => g.players.filter(q => q.team === k).length); team = n[0] <= n[1] ? 0 : 1; }
-    const pl = { id: p.id, name: p.name || COLOR_NAMES[ci], color: ci, score: 0, team };
+    const pl = { id: p.id, name: p.name || COLOR_NAMES[ci], color: ci, score: 0, team, shots: 0 };
     g.players.push(pl);
     return pl;
   }
@@ -492,7 +492,17 @@
   // keys are booleans (humans) or 0..1 analog values (bots)
   const axis = v => v === true ? 1 : v > 0 ? Math.min(1, +v) : 0;
   // inputs: { [playerId]: {u,d,l,r,f} }
+  // Shots fired this game (every trigger pull that actually shoots: cannon, gatling, laser, mine…).
+  const SHOT_EVENTS = new Set(['fire', 'gat', 'shotgun', 'laser', 'deathray', 'missile', 'mine']);
   function step(g, inputs, dt) {
+    const n0 = g.events.length;
+    stepSim(g, inputs, dt);
+    for (let i = n0; i < g.events.length; i++) {
+      const e = g.events[i]; if (!SHOT_EVENTS.has(e.type)) continue;
+      const p = g.players.find(p => p.id === e.id); if (p) p.shots = (p.shots || 0) + 1;
+    }
+  }
+  function stepSim(g, inputs, dt) {
     g.time += dt;
     if (g.phase === 'over') return; // deathmatch finished: frozen on the result until a new game starts
     if (isDM(g)) {
@@ -637,5 +647,5 @@
     };
   }
 
-  return { DM, setMatch, isDM, safeSpawnCell, respawn, kill, C, W, REACTIONS, REACTION_NAMES, REACT_COOLDOWN, REACT_SHOW, tryReact, botReaction, FRIENDLY_FIRE, TEAM_COLORS, TEAM_NAMES, teamOf, sameTeam, balanceTeams, setMode, setTeam, COLORS, COLOR_NAMES, WEAPONS, WEAPON_NAMES, KINDS, KIND_R, genMaze, mazeRects, traceRay, deathRayPath, nextWaypoint, mineState, moveBullet, moveTank, stickKeys, STICK_AXIS, STICK_DEAD, pointKeys, POINT_DRIVE, wrapA, circleHitsRect, createGame, addPlayer, removePlayer, newRound, step, snapshot, spawnCrate, giveWeapon };
+  return { SHOT_EVENTS, DM, setMatch, isDM, safeSpawnCell, respawn, kill, C, W, REACTIONS, REACTION_NAMES, REACT_COOLDOWN, REACT_SHOW, tryReact, botReaction, FRIENDLY_FIRE, TEAM_COLORS, TEAM_NAMES, teamOf, sameTeam, balanceTeams, setMode, setTeam, COLORS, COLOR_NAMES, WEAPONS, WEAPON_NAMES, KINDS, KIND_R, genMaze, mazeRects, traceRay, deathRayPath, nextWaypoint, mineState, moveBullet, moveTank, stickKeys, STICK_AXIS, STICK_DEAD, pointKeys, POINT_DRIVE, wrapA, circleHitsRect, createGame, addPlayer, removePlayer, newRound, step, snapshot, spawnCrate, giveWeapon };
 });
