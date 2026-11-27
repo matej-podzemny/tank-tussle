@@ -1,6 +1,5 @@
 node_modules
 .git
-docs
 tests
 *.png
 *.zip

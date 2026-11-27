@@ -133,7 +133,7 @@
     CRATE_MIN: 8, CRATE_MAX: 12, CRATE_FIRST_MIN: 3, CRATE_FIRST_MAX: 6, MAX_CRATES: 3, CRATE_R: 10,
     GATLING_AMMO: 24, GATLING_SPIN: 1.0, GATLING_RATE: 0.07, GATLING_SPEED: 200, GATLING_LIFE: 3.5, GATLING_SPREAD: 0.13,
     LASER_LEN: 1100, LASER_GUIDE: 500,
-    FRAG_SPEED: 120, FRAG_FUSE: 3, FRAG_PIECES: 26, FRAG_PIECE_SPEED: 210,
+    FRAG_SPEED: 120, FRAG_FUSE: 5, FRAG_PIECES: 40, FRAG_PIECE_SPEED: 250, FRAG_LIFE: 8, FRAG_STICK: 0.6,
     RAY_CHARGE: 2.0, RAY_LEN: 2200, RAY_TURN: 0.003, RAY_CONE: 0.9, RAY_LOCK: 0.7,
     MISSILE_SPEED: 125, MISSILE_TURN: 3.0, MISSILE_LIFE: 9, MISSILE_SEEK_AFTER: 2.0,
     RC_SPEED: 130, RC_TURN: 3.4, RC_LIFE: 7,
@@ -341,8 +341,8 @@
   }
   function burstFrag(g, b) {
     for (let i = 0; i < W.FRAG_PIECES; i++) {
-      const a = Math.random() * Math.PI * 2, s = W.FRAG_PIECE_SPEED * rand(0.6, 1.1);
-      g.bullets.push({ id: g.nextId++, owner: b.owner, kind: 'frag', r: KIND_R.frag, x: b.x, y: b.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: rand(0.5, 1.0), grace: 0 });
+      const a = Math.random() * Math.PI * 2, s = W.FRAG_PIECE_SPEED * rand(0.75, 1.1);
+      g.bullets.push({ id: g.nextId++, owner: b.owner, kind: 'frag', r: KIND_R.frag, x: b.x, y: b.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, age: 0, life: W.FRAG_LIFE, grace: 0 });
     }
     g.events.push({ type: 'burst', x: b.x, y: b.y });
   }
@@ -394,7 +394,8 @@
 
   function useWeapon(g, t, k, pressed, dt) {
     switch (t.weapon) {
-      case 'gatling': // one press: barrels spin up, then the whole belt sprays out
+      case 'gatling': // hold fire: barrels spin up, then it sprays while held; letting go (even mid spin-up) loses the gun
+        if ((t.charge > 0 || t.firing) && !k.f) { if (t.charge > 0) g.events.push({ type: 'spinstop', id: t.id }); t.weapon = null; t.charge = 0; t.firing = false; t.ammo = 0; break; }
         if (t.charge > 0) { t.charge -= dt; if (t.charge <= 0) { t.charge = 0; t.firing = true; } }
         else if (!t.firing && pressed) { t.charge = W.GATLING_SPIN; g.events.push({ type: 'spin', id: t.id }); }
         if (t.firing && t.cool <= 0) {
@@ -417,8 +418,9 @@
         if (t.charge > 0) { t.charge -= dt; if (t.charge <= 0) { t.charge = 0; fireBeam(g, t, 'deathray'); t.weapon = null; } }
         else if (pressed) { t.charge = W.RAY_CHARGE; g.events.push({ type: 'charge', id: t.id }); }
         break;
-      case 'missile':
-        if (pressed) { spawnProjectile(g, t, 'missile', W.MISSILE_SPEED, { life: W.MISSILE_LIFE, grace: 0.5 }); t.weapon = null; g.events.push({ type: 'missile', id: t.id }); }
+      case 'missile': // no shooting at all until the launched missile is gone
+        if (!t.bombId) { if (pressed) { t.bombId = spawnProjectile(g, t, 'missile', W.MISSILE_SPEED, { life: W.MISSILE_LIFE, grace: 0.5 }).id; t.ammo = 0; g.events.push({ type: 'missile', id: t.id }); } }
+        else if (!g.bullets.some(b => b.id === t.bombId)) { t.weapon = null; t.bombId = 0; }
         break;
       case 'rc': // tank is frozen while its missile flies; left/right steer the missile
         if (!t.rcId) { if (pressed) { t.rcId = spawnProjectile(g, t, 'rc', W.RC_SPEED, { life: W.RC_LIFE, grace: 0.5, steer: 0 }).id; g.events.push({ type: 'missile', id: t.id }); } }
@@ -482,22 +484,29 @@
   // roughly facing it (within POINT_DRIVE). It stops turning within `step` (one frame of rotation), so no jitter.
   // Screen angles = world angles (y points down, -PI/2 = up).
   const POINT_DRIVE = 40 * Math.PI / 180;
-  // Online render clock. Each snapshot gives est = server time - local time; the least delayed packet of the last 4 s
-  // (max est) is the true offset, the spread (to the 2nd percentile) is the jitter. Render that far behind (plus a snapshot interval and a
-  // margin), and only drift towards a new target at +-8 % speed, so the view never jumps back or races ahead.
+  // Online render clock. Each snapshot gives est = server time - local time; the least delayed packet of the last few
+  // seconds (max est) is the true offset, max - est is how late a packet was. Render far enough behind to cover the
+  // usual lateness (plus a snapshot interval and a margin); rarer spikes are bridged by the client's short
+  // extrapolation, not by delaying everything for the worst packet. Playback runs at exactly real speed and only
+  // adjusts (a few % fast/slow) once it is clearly off target, so moving things never visibly speed up / slow down
+  // all the time, and the view never jumps back.
+  const CLOCK = { WINDOW: 8000, PCT: 0.9, MARGIN: 10, MIN: 50, MAX: 250, AHEAD: 5, BEHIND: 40, RATE: 0.03, DECAY: 0.003 };
   function clockSample(c, est, now) {
-    if (c.s && c.s.length && Math.abs(est - c.s[c.s.length - 1][1]) > 2000) { c.s = null; c.off = null; } // new game: server time restarted
+    if (c.s && c.s.length && Math.abs(est - c.s[c.s.length - 1][1]) > 2000) { c.s = null; c.off = null; c.delay = null; } // new game: server time restarted
     const s = c.s || (c.s = []); s.push([now, est]);
-    while (s.length > 1 && s[0][0] < now - 4000) s.shift();
-    const v = s.map(x => x[1]).sort((x, y) => x - y), max = v[v.length - 1], lo = v[Math.floor(v.length * 0.02)];
-    c.delay = Math.min(300, Math.max(50, 33 + (max - lo) + 15));
+    while (s.length > 1 && s[0][0] < now - CLOCK.WINDOW) s.shift();
+    const v = s.map(x => x[1]).sort((x, y) => x - y), max = v[v.length - 1], lo = v[Math.floor(v.length * (1 - CLOCK.PCT))];
+    const need = Math.min(CLOCK.MAX, Math.max(CLOCK.MIN, 33 + (max - lo) + CLOCK.MARGIN));
+    c.delay = c.delay == null || need > c.delay ? need : c.delay + (need - c.delay) * CLOCK.DECAY; // up at once, down slowly
     c.target = max - c.delay;
-    if (c.off == null || Math.abs(c.target - c.off) > 500) c.off = c.target;
+    if (c.off == null || Math.abs(c.target - c.off) > 500) { c.off = c.target; c.adj = false; }
   }
   function clockRender(c, now, dtMs) {
     if (c.off == null) return null;
-    const lim = 0.08 * Math.max(0, dtMs);
-    c.off += Math.max(-lim, Math.min(lim, c.target - c.off));
+    const d = c.target - c.off;
+    // too close to the newest data: slow down soon; merely more delayed than needed: only once it's clearly worth it
+    if (d < -CLOCK.AHEAD || d > CLOCK.BEHIND) c.adj = true; else if (Math.abs(d) < 2) c.adj = false;
+    if (c.adj) { const lim = CLOCK.RATE * Math.max(0, dtMs); c.off += Math.max(-lim, Math.min(lim, d)); }
     return now + c.off;
   }
 
@@ -574,8 +583,21 @@
         const cur = Math.atan2(b.vy, b.vx) + b.steer * W.RC_TURN * dt;
         b.vx = Math.cos(cur) * W.RC_SPEED; b.vy = Math.sin(cur) * W.RC_SPEED; b.steer = 0;
       }
-      if (moveBullet(b, Math.hypot(b.vx, b.vy) * dt, g.rects)) g.events.push({ type: 'bounce' });
-      b.a = Math.atan2(b.vy, b.vx);
+      // frag shards fly straight until they hit a wall, stick into it (harmless) and vanish shortly after
+      if (b.kind === 'frag') {
+        if (b.stuck) { keep.push(b); continue; }
+        const sp = Math.hypot(b.vx, b.vy) || 1, dx = b.vx / sp, dy = b.vy / sp;
+        if (moveBullet(b, sp * dt, g.rects)) {
+          // slide on along the original heading until the shard's centre is just inside the wall, so it looks embedded
+          for (let d = 0; d < b.r + 3; d += 0.25) {
+            if (g.rects.some(q => circleHitsRect(b.x + dx * d, b.y + dy * d, 0.01, q))) { b.x += dx * (d + 1); b.y += dy * (d + 1); break; }
+          }
+          b.stuck = true; b.vx = b.vy = 0; b.life = b.age + W.FRAG_STICK; keep.push(b); continue;
+        }
+      } else {
+        if (moveBullet(b, Math.hypot(b.vx, b.vy) * dt, g.rects)) g.events.push({ type: 'bounce' });
+        b.a = Math.atan2(b.vy, b.vx);
+      }
       let hit = false;
       for (const t of tanks) {
         if (!t.alive || t.prot > 0) continue; // spawn-protected tanks: shots pass through
@@ -656,5 +678,5 @@
     };
   }
 
-  return { DM, setMatch, isDM, safeSpawnCell, respawn, kill, C, W, REACTIONS, REACTION_NAMES, REACT_COOLDOWN, REACT_SHOW, tryReact, botReaction, FRIENDLY_FIRE, TEAM_COLORS, TEAM_NAMES, teamOf, sameTeam, balanceTeams, setMode, setTeam, COLORS, COLOR_NAMES, WEAPONS, WEAPON_NAMES, KINDS, KIND_R, genMaze, mazeRects, traceRay, deathRayPath, nextWaypoint, mineState, moveBullet, moveTank, stickKeys, STICK_AXIS, STICK_DEAD, pointKeys, POINT_DRIVE, clockSample, clockRender, wrapA, circleHitsRect, createGame, addPlayer, removePlayer, newRound, step, snapshot, spawnCrate, giveWeapon };
+  return { DM, setMatch, isDM, safeSpawnCell, respawn, kill, C, W, REACTIONS, REACTION_NAMES, REACT_COOLDOWN, REACT_SHOW, tryReact, botReaction, FRIENDLY_FIRE, TEAM_COLORS, TEAM_NAMES, teamOf, sameTeam, balanceTeams, setMode, setTeam, COLORS, COLOR_NAMES, WEAPONS, WEAPON_NAMES, KINDS, KIND_R, genMaze, mazeRects, traceRay, deathRayPath, nextWaypoint, mineState, moveBullet, moveTank, stickKeys, STICK_AXIS, STICK_DEAD, pointKeys, POINT_DRIVE, CLOCK, clockSample, clockRender, wrapA, circleHitsRect, createGame, addPlayer, removePlayer, newRound, step, snapshot, spawnCrate, giveWeapon };
 });

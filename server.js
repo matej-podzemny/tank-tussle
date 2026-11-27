@@ -27,7 +27,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// WebSockets: any origin may connect (the static client can live on GitHub Pages)
+// WebSockets: any origin may connect (e.g. the single-file tank-tussle.html opened from disk)
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
 const rooms = new Map();
 const keyRooms = new Map(); // Discord Activity instance id -> room code (everyone in the same voice-channel activity shares one room)
@@ -70,7 +70,7 @@ function startGame(room) {
   for (const id of room.order) { const m = room.members.get(id); TT.addPlayer(g, { id, name: m.name, colorIndex: m.color, team: m.team }); if (m.bot) m.brain = TTBots.newBrain(m.level); }
   TT.newRound(g); g.events.length = 0; debugArm(g);
   broadcast(room, lobbyMsg(room)); broadcast(room, mazeMsg(room));
-  let tick = 0, round = g.round, phase = g.phase;
+  let tick = 0, round = g.round, phase = g.phase, pend = [];
   // setInterval runs a few % slow (and jitters); pace the simulation by the wall clock so game time = real time,
   // which keeps the clients' interpolation clock steady. Catch up at most a few ticks after a stall.
   let due = performance.now();
@@ -98,8 +98,9 @@ function startGame(room) {
     for (const e of ev) { const br = TT.botReaction(e, id => { const x = room.members.get(id); return !!(x && x.bot); }); if (br) setTimeout(() => react(room, br.id, br.r), 500); }
     if (g.phase !== phase) { phase = g.phase; if (phase === 'over') broadcast(room, lobbyMsg(room)); } // deathmatch finished: final scores
     if (g.round !== round) { round = g.round; debugArm(g); broadcast(room, lobbyMsg(room)); broadcast(room, mazeMsg(room)); }
+    pend.push(...ev); // events of ticks without a snapshot ride along with the next one (else ~half the sounds/effects got lost)
     if (++tick % SEND_EVERY === 0 || ev.some(e => e.type === 'die' || e.type === 'respawn' || e.type === 'over')) {
-      const s = TT.snapshot(g); s.ev = ev.filter(e => e.type !== 'bounce' && e.type !== 'round');
+      const s = TT.snapshot(g); s.ev = pend.filter(e => e.type !== 'bounce' && e.type !== 'round'); pend = [];
       slim(room, s);
       // each client only gets its own last input seq + ticks it has been applied (client prediction), not everyone's
       const base = JSON.stringify(s).slice(0, -1);

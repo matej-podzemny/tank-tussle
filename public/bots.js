@@ -62,7 +62,7 @@
   // Is a projectile about to hit me? Returns the threatening bullet's velocity or null.
   function threat(g, t) {
     for (const b of g.bullets) {
-      if (Math.hypot(b.x - t.x, b.y - t.y) > 170) continue;
+      if (b.stuck || Math.hypot(b.x - t.x, b.y - t.y) > 170) continue;
       if (b.owner === t.id && b.age < 0.25) continue;
       if (!TT.FRIENDLY_FIRE && TT.sameTeam(g, t.id, b.owner)) continue; // teammates' shots pass through us
       const p = { x: b.x, y: b.y, vx: b.vx, vy: b.vy, r: b.r };
@@ -178,8 +178,9 @@
     }
     br.thr = (br.thr || 0) + (thr - (br.thr || 0)) * Math.min(1, dt * 10);
     if (br.thr > 0.02) k.u = br.thr; else if (br.thr < -0.02) k.d = -br.thr;
-    // fire (needs a fresh press each time, except gatling which is held)
-    if (plan.fire && br.cool <= 0) {
+    // fire (needs a fresh press each time, except gatling which is held — and must stay held once it spins up, or it's lost)
+    if (t.weapon === 'gatling' && (t.charge > 0 || t.firing)) k.f = true;
+    else if (plan.fire && br.cool <= 0) {
       if (t.weapon === 'gatling') k.f = true;
       else if (!br.lastF) { k.f = true; br.cool = t.weapon ? 0.3 : L.fireGap * (0.7 + Math.random() * 0.6); plan.fire = false; }
     }

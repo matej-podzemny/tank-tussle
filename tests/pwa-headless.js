@@ -1,8 +1,8 @@
 // PWA checks in headless Chrome: manifest parses, the page is installable (Chrome's installability checks),
 // the service worker registers and serves the app shell offline, and it never intercepts the game server.
-// URLS: comma-separated pages to test. Defaults: GitHub-Pages-like copy of docs/ at /tank-tussle/ + server.js.
+// URLS: comma-separated pages to test. Default: server.js.
 const puppeteer = require('puppeteer-core');
-const URLS = (process.env.URLS || 'http://localhost:8098/tank-tussle/,http://localhost:8097/').split(',');
+const URLS = (process.env.URLS || 'http://localhost:8097/').split(',');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let fail = 0; const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fail++; };
 (async () => {
